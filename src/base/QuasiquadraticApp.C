@@ -4,6 +4,8 @@
 #include "ModulesApp.h"
 #include "MooseSyntax.h"
 
+#include "QQElement.h"
+
 template<>
 InputParameters validParams<QuasiquadraticApp>()
 {
@@ -40,6 +42,7 @@ extern "C" void QuasiquadraticApp__registerObjects(Factory & factory) { Quasiqua
 void
 QuasiquadraticApp::registerObjects(Factory & factory)
 {
+    registerKernel(QQElement);
 }
 
 // External entry point for dynamic syntax association
