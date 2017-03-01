@@ -1,21 +1,24 @@
-#include "QQElement.h"
+#include "QQElement_slow.h"
 
 #include "MooseMesh.h"
 #include "Assembly.h"
 #include "libmesh/quadrature.h"
 
 template <>
-InputParameters validParams<QQElement>() {
+InputParameters validParams<QQElement_slow>() {
   InputParameters params = validParams<Kernel>();
   params.addRequiredCoupledVar("disp_x", "");
   params.addRequiredCoupledVar("disp_y", "");
   //params.addCoupledVar        ("disp_z", "");
 
+ params.addRequiredParam<unsigned>("component", "component");
+    
   return params;
 }
 
-QQElement::QQElement(const InputParameters & params) :
+QQElement_slow::QQElement_slow(const InputParameters & params) :
     Kernel(params),
+    _component(getParam<unsigned>("component")),
     _disp_x_var(coupled("disp_x")),
     _disp_y_var(coupled("disp_y")),
     //_disp_z_var(_mesh.dimension() == 3 ? coupled("disp_z") : 100000),
@@ -33,33 +36,40 @@ QQElement::QQElement(const InputParameters & params) :
     if (_mesh.dimension() == 2)
         _identity=RealTensorValue(1.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0);
     
-    
+    // here we will store the gradient of basis functions: 0,1,2 are the fine ones, 3 the coarse ones
     _qq_grad_test=new RealVectorValue * [4];
     for (int i=0 ; i < 4; ++i)
         _qq_grad_test[i]=new RealVectorValue [3];
     
+    // here we allocate mechanical quantities per element
     U = new RealTensorValue [4];
     F = new RealTensorValue [4];
     C = new RealTensorValue [4];
     E = new RealTensorValue [4];
-    EQQ = new RealTensorValue [6];
+
+    // EQQ is per node coarse
+    EQQ = new RealTensorValue [3];
     
+
+    // eps_lin, per dimension, per triangle, per node
     _eps_lin = new RealTensorValue ** [2];
     for (int i=0; i<2; ++i)
         _eps_lin[i]=new RealTensorValue * [4];
  
+    for (int i=0; i<2; ++i)
+        for (int j=0; j<4; ++j)
+            _eps_lin[i][j]=new RealTensorValue[6];
+    
+    // _eps_lin_QQ per dimension, per node fine (dof), per node coarse
     _eps_lin_QQ = new RealTensorValue ** [2];
     for (int i=0; i<2; ++i)
         _eps_lin_QQ[i]=new RealTensorValue * [6];
     
     for (int dim=0; dim<2; ++dim)
        for (int j=0; j<6; ++j)
-           _eps_lin_QQ[dim][j]= new RealTensorValue [6];
+           _eps_lin_QQ[dim][j]= new RealTensorValue [3];
     
-    for (int i=0; i<2; ++i)
-        for (int j=0; j<4; ++j)
-            _eps_lin[i][j]=new RealTensorValue[6];
-
+    
     _local_to_global= new int *[4];
     for (int i=0; i<4;++i)
         _local_to_global[i]=new int [3];
@@ -77,67 +87,71 @@ QQElement::QQElement(const InputParameters & params) :
     _local_to_global[3][1]=1;
     _local_to_global[3][2]=2;
     
-//    for (int i=0; i<4; ++i)
-//    {
-//        for (int j=0; j<3;++j)
-//            std::cout<<_local_to_global[i][j]<<" ";
-//        std::cout<<std::endl;
-//    }
+    simpson_to_tri6= new int [6];
+    
+    simpson_to_tri6[0]=0;
+    simpson_to_tri6[1]=1;
+    simpson_to_tri6[2]=2;
+    simpson_to_tri6[3]=3;
+    simpson_to_tri6[4]=5;
+    simpson_to_tri6[5]=4;
+    
+    _mu=1.0;
+    _lambda=3.0;
     
 
 }
 
-void QQElement::computeResidual()
+void QQElement_slow::computeResidual()
 {
 //    std::cout<<"chiamato\n";
     if (_mesh.dimension()==2)
         computeResidual2D();
 }
 
-void QQElement::computeResidual2D()
+void QQElement_slow::computeResidual2D()
 {
-    //std::cout<<"numero di punti "<<_qrule->n_points()<<std::endl;
-//     for (_qp = 0; _qp < _qrule->n_points(); _qp++)
-//         std::cout<<_coord[_qp]<<std::endl;
+    /*std::cout<<"numero di punti "<<_qrule->n_points()<<std::endl;
+     for (_qp = 0; _qp < _qrule->n_points(); _qp++)
+         std::cout<<_JxW[_qp]<<std::endl;
+    exit(1);*/
     
-    computeGradient(_q_point[0],_q_point[3],_q_point[4],_qq_grad_test[0]);
-    computeGradient(_q_point[1],_q_point[5],_q_point[3],_qq_grad_test[1]);
-    computeGradient(_q_point[2],_q_point[4],_q_point[5],_qq_grad_test[2]);
-    computeGradient(_q_point[0],_q_point[1],_q_point[2],_qq_grad_test[3]);
+    Real area=0.0;
+    for (_qp = 0; _qp < _qrule->n_points(); _qp++)
+        area+=_JxW[_qp];
 
+    
+    DenseMatrix<Number> mass_matrix;
+    mass_matrix.resize(3,3);
+    for (int i=0; i<3; ++i)
+        for (int j=0; j<3; ++j)
+            if (i==j)
+                mass_matrix(i,j)=area/6.0;
+            else
+                mass_matrix(i,j)=area/12.0;
+    
+    for (int tri=0; tri<4; ++tri)
+        computeGradient(_q_point[_local_to_global[tri][0]],
+                        _q_point[_local_to_global[tri][1]],
+                        _q_point[_local_to_global[tri][2]],_qq_grad_test[tri]);
+    
+    
     RealVectorValue Temp1,Temp2,Temp3;
     
-    // Strain triangolino vicino al nodo 0
+    // Strain
     
-    Temp1=_qq_grad_test[0][0]*_disp_x[0]+_qq_grad_test[0][1]*_disp_x[3]+_qq_grad_test[0][2]*_disp_x[4];
-    Temp2=_qq_grad_test[0][0]*_disp_y[0]+_qq_grad_test[0][1]*_disp_y[3]+_qq_grad_test[0][2]*_disp_y[3];
-    Temp3=RealVectorValue(0.0,0.0,0.0);
-    
-    U[0]=RealTensorValue(Temp1(0),Temp1(1),Temp1(2),Temp2(0),Temp2(1),Temp2(2),Temp3(0),Temp3(1),Temp3(2));
+    for (int tri=0; tri<4; ++tri) {
 
-    // Strain triangolino vicino al nodo 1
-
-    Temp1=_qq_grad_test[1][0]*_disp_x[1]+_qq_grad_test[1][1]*_disp_x[5]+_qq_grad_test[1][2]*_disp_x[3];
-    Temp2=_qq_grad_test[1][0]*_disp_y[1]+_qq_grad_test[1][1]*_disp_y[5]+_qq_grad_test[1][2]*_disp_y[3];
-    Temp3=RealVectorValue(0.0,0.0,0.0);
+        Temp1 = _qq_grad_test[tri][0]*_disp_x[_local_to_global[tri][0]]+
+                _qq_grad_test[tri][1]*_disp_x[_local_to_global[tri][1]]+
+                _qq_grad_test[tri][2]*_disp_x[_local_to_global[tri][2]];
+        Temp2 = _qq_grad_test[tri][0]*_disp_y[_local_to_global[tri][0]]+
+                _qq_grad_test[tri][1]*_disp_y[_local_to_global[tri][1]]+
+                _qq_grad_test[tri][2]*_disp_y[_local_to_global[tri][2]];
+        Temp3 = RealVectorValue(0.0,0.0,0.0);
     
-    U[1]=RealTensorValue(Temp1(0),Temp1(1),Temp1(2),Temp2(0),Temp2(1),Temp2(2),Temp3(0),Temp3(1),Temp3(2));
-
-    // Strain triangolino vicino al nodo 2
-    
-    Temp1=_qq_grad_test[2][0]*_disp_x[2]+_qq_grad_test[2][1]*_disp_x[4]+_qq_grad_test[2][2]*_disp_x[5];
-    Temp2=_qq_grad_test[2][0]*_disp_y[2]+_qq_grad_test[2][1]*_disp_y[4]+_qq_grad_test[2][2]*_disp_y[5];
-    Temp3=RealVectorValue(0.0,0.0,0.0);
-    
-    U[2]=RealTensorValue(Temp1(0),Temp1(1),Temp1(2),Temp2(0),Temp2(1),Temp2(2),Temp3(0),Temp3(1),Temp3(2));
-
-    // Strain triangolone
-    
-    Temp1=_qq_grad_test[3][0]*_disp_x[0]+_qq_grad_test[3][1]*_disp_x[1]+_qq_grad_test[3][2]*_disp_x[2];
-    Temp2=_qq_grad_test[3][0]*_disp_y[0]+_qq_grad_test[3][1]*_disp_y[1]+_qq_grad_test[3][2]*_disp_y[2];
-    Temp3=RealVectorValue(0.0,0.0,0.0);
-    
-    U[3]=RealTensorValue(Temp1(0),Temp1(1),Temp1(2),Temp2(0),Temp2(1),Temp2(2),Temp3(0),Temp3(1),Temp3(2));
+        U[tri]=RealTensorValue(Temp1(0),Temp1(1),Temp1(2),Temp2(0),Temp2(1),Temp2(2),Temp3(0),Temp3(1),Temp3(2));
+    }
     
     for (int i=0; i<4; ++i)
     {
@@ -146,40 +160,25 @@ void QQElement::computeResidual2D()
         E[i]=0.5*(C[i]-_identity);
     }
     
-    EQQ[0]=2.0*E[0]-E[3];
-    EQQ[1]=2.0*E[1]-E[3];
-    EQQ[2]=2.0*E[2]-E[3];
-    EQQ[3]=0.5*(EQQ[0]+EQQ[1]);
-    EQQ[4]=0.5*(EQQ[2]+EQQ[0]);
-    EQQ[5]=0.5*(EQQ[1]+EQQ[2]);
-
-    
+    for (int nodo_coarse=0; nodo_coarse<3; ++nodo_coarse)
+    {
+        EQQ[nodo_coarse]=2.0*E[nodo_coarse]-E[3];
+        EQQ[nodo_coarse]=2.0*_mu*EQQ[nodo_coarse]+_lambda*EQQ[nodo_coarse].tr()*_identity;
+    }
     // FINE ASSEMBLING STRAIN QQ
 
-    assembleStrainLin(0,0,_local_to_global[0]);
-    assembleStrainLin(0,1,_local_to_global[1]);
-    assembleStrainLin(0,2,_local_to_global[2]);
-    assembleStrainLin(0,3,_local_to_global[3]);
-    
-    assembleStrainLin(1,0,_local_to_global[0]);
-    assembleStrainLin(1,1,_local_to_global[1]);
-    assembleStrainLin(1,2,_local_to_global[2]);
-    assembleStrainLin(1,3,_local_to_global[3]);
-
     for (int dim=0; dim<2; ++dim)
-        for (int j=0; j<6; ++j)
-        {
-            _eps_lin_QQ[dim][j][0]=2.0*_eps_lin[dim][0][j]-_eps_lin[dim][3][j];
-            _eps_lin_QQ[dim][j][1]=2.0*_eps_lin[dim][1][j]-_eps_lin[dim][3][j];
-            _eps_lin_QQ[dim][j][2]=2.0*_eps_lin[dim][2][j]-_eps_lin[dim][3][j];
-            _eps_lin_QQ[dim][j][3]=0.5*(_eps_lin_QQ[dim][j][0]+_eps_lin_QQ[dim][j][1]);
-            _eps_lin_QQ[dim][j][4]=0.5*(_eps_lin_QQ[dim][j][2]+_eps_lin_QQ[dim][j][0]);
-            _eps_lin_QQ[dim][j][5]=0.5*(_eps_lin_QQ[dim][j][1]+_eps_lin_QQ[dim][j][2]);
-        }
+        for (int tri=0; tri<4; ++tri)
+            assembleStrainLin(dim,tri,_local_to_global[tri]);
+    
+    for (int dim=0; dim<2; ++dim)
+        for (int nodo=0; nodo<6; ++nodo)
+            for (int nodo_coarse=0; nodo_coarse<3; ++nodo_coarse)
+                _eps_lin_QQ[dim][nodo][nodo_coarse]=2.0*_eps_lin[dim][nodo_coarse][nodo]-_eps_lin[dim][3][nodo];
+    
     
     DenseVector<Number> & f_x = _assembly.residualBlock(_disp_x_var);
     DenseVector<Number> & f_y = _assembly.residualBlock(_disp_y_var);
-    
     DenseVector<Number> _f_local[2];
     
     for (int dim=0; dim<2; ++dim)
@@ -187,15 +186,54 @@ void QQElement::computeResidual2D()
         _f_local[dim].resize(f_x.size());
         _f_local[dim].zero();
     }
-    for (int dim=0; dim<2; ++dim)
-        for (_j = 0; _j < _test.size(); _j++)
-            for (_qp = 0; _qp < _qrule->n_points(); _qp++)
-            {
-                _f_local[dim](_j)=_JxW[_qp] * _coord[_qp] * EQQ[_qp].contract(_eps_lin_QQ[dim][_j][_qp] );
-            }
+ 
     
-    f_x += _f_local[0];
-    f_y += _f_local[1];
+    DenseVector<Number> V(3);
+    DenseVector<Number> VLin(3);
+    DenseVector<Number> res(3);
+    
+    for (int dim=0; dim<2; ++dim)
+        for (int nodo = 0; nodo < 6; ++nodo)
+        {
+            _f_local[dim](simpson_to_tri6[nodo])=0.0;
+            
+            
+            for (int i_local=0; i_local<2; ++i_local)
+                for (int j_local=0; j_local<2; ++j_local)
+                {
+                    
+                    for (int nodo_coarse = 0; nodo_coarse < 3; ++nodo_coarse)  // nuova quadratura
+                    {
+                        V(nodo_coarse)=EQQ[nodo_coarse](i_local,j_local);
+                        VLin(nodo_coarse)=_eps_lin_QQ[dim][nodo][nodo_coarse](i_local,j_local);
+                    }
+                    
+                    mass_matrix.vector_mult(res,V);
+                    _f_local[dim](simpson_to_tri6[nodo]) += res.dot(VLin);
+                }
+            
+        }
+    
+    
+    
+    if(_component==0)
+        f_x += _f_local[0];
+    if(_component==1)
+        f_y += _f_local[1];
+    
+//    std::cout<<_f_local[0]<<std::endl;
+//    std::cout<<_f_local[1]<<std::endl;
+//    
+//    for (int i=0; i<6; ++i)
+//        std::cout<<_q_point[i]<<" "<<_disp_x[i]<<" "<<_u[i]<<std::endl;
+    
+//    std::cout<<std::endl<<std::endl;
+
+//    int i;
+//    std::cin>>i;
+    
+    //exit(1);
+    
 }
 
 //void QQElement::computeOffDiagJacobian(unsigned int jvar)
@@ -356,7 +394,7 @@ void QQElement::computeResidual2D()
 //    
 }*/
 
-void QQElement::computeGradient(RealVectorValue x0, RealVectorValue x1, RealVectorValue x2, RealVectorValue * Gradient)
+void QQElement_slow::computeGradient(RealVectorValue x0, RealVectorValue x1, RealVectorValue x2, RealVectorValue * Gradient)
 {
     RealTensorValue coordinates;
     coordinates(0,0)=x0(0);
@@ -375,7 +413,7 @@ void QQElement::computeGradient(RealVectorValue x0, RealVectorValue x1, RealVect
     Gradient[2]=RealVectorValue(coordinates(0,2),coordinates(1,2),0.0);
 }
 
-void QQElement::assembleStrainLin(int dim, int triangle, int * _local_to_global)
+void QQElement_slow::assembleStrainLin(int dim, int triangle, int * _local_to_global)
 {
     // set to zero strain_lin
     for (int i=0; i <6; ++i)   // i is the quadrature node
@@ -391,10 +429,6 @@ void QQElement::assembleStrainLin(int dim, int triangle, int * _local_to_global)
     }
 
 }
-
-
-
-
 
 
 

@@ -1,30 +1,70 @@
 [Mesh]
  type = GeneratedMesh
  dim = 2
- nx = 2
- ny = 2
+ nx = 40
+ ny = 4
  xmin = 0.0
- xmax = 1.0
+ xmax = 10.0
  ymin = 0.0
  ymax = 1.0
  elem_type = TRI6
 []
 
+ [Functions]
+ [./parsed_function]
+    type = ParsedFunction
+    value = '0.0'
+ [../]
+ []
+ 
+# [ICs]
+# [./u_ic]
+# type = FunctionIC
+# variable = 'disp_x'
+# function = parsed_function
+# [../]
+# []
+
+ 
 [Variables]
- [./disp_x]  order = SECOND  family=LAGRANGE [../]
+ [./disp_x]  order = SECOND  family=LAGRANGE
+ 
+ [./InitialCondition]
+ type = BoundingBoxIC
+ x1 = -0.0001
+ x2 =  0.0001
+ y1 = -0.0001
+ y2 =  0.0001
+ inside =   0.0
+ outside =  0.0
+ [../]
+
+ 
+ [../]
  [./disp_y]  order = SECOND  family=LAGRANGE [../]
  []
  
 [Kernels]
-[./QQElementKernel]
- type = QQElement
+[./QQElementKernel_x]
+ type = NeohookeanQQ_slow
+ component =0
  variable = disp_x
  disp_x = disp_x
  disp_y = disp_y
+[../]
+
+ [./QQElementKernel_y]
+ type = NeohookeanQQ_slow
+ component =1
+ variable = disp_y
+ disp_x = disp_x
+ disp_y = disp_y
  [../]
+
  []
  
  [BCs]
+#active = 'bottom_y'
  [./left_x]
  type = DirichletBC
  variable = disp_x
@@ -39,11 +79,11 @@
  value = 0
  [../]
 
- [./bottom_x]
+ [./bottom_y]
  type = NeumannBC
  variable = disp_y
  boundary = bottom
- value = -0.000001
+ value = 0.0001
  [../]
  
  []
@@ -66,10 +106,8 @@ nl_abs_tol = 1e-8
 #petsc_options_iname=' -ksp_type -pc_type -pc_factor_shift_type -pc_factor_mat_solver_package '
 # petsc_options_value='   preonly   lu       NONZERO               mumps                '
 
-petsc_options_iname=' -ksp_type -pc_type  -mat_view '
- petsc_options_value='   preonly   lu    ::ascii_matlab       '
-
-
+ petsc_options_iname=' -ksp_type -pc_type' #  -mat_view '
+ petsc_options_value='   preonly   lu    ' #::ascii_matlab       '
  
  [./Quadrature]
  type = SIMPSON
@@ -81,7 +119,7 @@ petsc_options_iname=' -ksp_type -pc_type  -mat_view '
  [Problem]
  type = FEProblem
  solve = true
- kernel_coverage_check = false
+ kernel_coverage_check = true
  []
  
  

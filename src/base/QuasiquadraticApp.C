@@ -5,6 +5,8 @@
 #include "MooseSyntax.h"
 
 #include "QQElement.h"
+#include "QQElement_slow.h"
+#include "NeohookeanQQ_slow.h"
 
 template<>
 InputParameters validParams<QuasiquadraticApp>()
@@ -43,6 +45,8 @@ void
 QuasiquadraticApp::registerObjects(Factory & factory)
 {
     registerKernel(QQElement);
+    registerKernel(QQElement_slow);
+    registerKernel(NeohookeanQQ_slow);
 }
 
 // External entry point for dynamic syntax association

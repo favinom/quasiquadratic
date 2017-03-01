@@ -1,18 +1,18 @@
-#ifndef QQElement_H
-#define QQElement_H
+#ifndef QQElement_slow_H
+#define QQElement_slow_H
 
 #include "Kernel.h"
 
-class QQElement;
+class QQElement_slow;
 
 template<>
-InputParameters validParams<QQElement>();
+InputParameters validParams<QQElement_slow>();
 
 
-class QQElement : public Kernel
+class QQElement_slow : public Kernel
 {
 public:
-    QQElement( InputParameters const & params);
+    QQElement_slow( InputParameters const & params);
 protected:
     virtual Real computeQpResidual(){return 0.0;};
     //virtual Real computeQpJacobian(){return 0.0;};
@@ -31,6 +31,8 @@ protected:
     
     void computeGradient(RealVectorValue x0, RealVectorValue x1, RealVectorValue x2, RealVectorValue * Gradient);
 
+    int _component;
+    
     unsigned int _disp_x_var;
     unsigned int _disp_y_var;
 //    unsigned int _disp_z_var;
@@ -48,6 +50,9 @@ protected:
     
     RealTensorValue ***_eps_lin_QQ;
     
+    RealTensorValue * EQQ_qp;
+    RealTensorValue *** Elin_qp;
+    
     
 //    RealTensorValue ***_sigma_lin;
     
@@ -59,6 +64,8 @@ protected:
     RealTensorValue *EQQ;
 
     int **_local_to_global;
+    
+    int * simpson_to_tri6;
     
     Real _mu,_lambda;
 };
