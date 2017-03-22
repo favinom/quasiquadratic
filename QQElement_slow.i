@@ -1,10 +1,10 @@
 [Mesh]
  type = GeneratedMesh
  dim = 2
- nx = 4
- ny = 4
+ nx = 10
+ ny = 1
  xmin = 0.0
- xmax = 1.0
+ xmax = 10.0
  ymin = 0.0
  ymax = 1.0
  elem_type = TRI6
@@ -46,7 +46,9 @@
  
 [Kernels]
 [./QQElementKernel_x]
- type = QQElement_slow
+ type = GuccioneStress_slow
+# type = GuccioneStrain_slow
+# type = NeohookeanQQ_slow
  component =0
  variable = disp_x
  disp_x = disp_x
@@ -54,7 +56,9 @@
 [../]
 
  [./QQElementKernel_y]
- type = QQElement_slow
+ type = GuccioneStress_slow
+# type = GuccioneStrain_slow
+# type = NeohookeanQQ_slow
  component =1
  variable = disp_y
  disp_x = disp_x
@@ -83,7 +87,7 @@
  type = NeumannBC
  variable = disp_y
  boundary = bottom
- value = 0.1
+ value = 0.0003
  [../]
  
  []
@@ -115,9 +119,22 @@ nl_abs_tol = 1e-8
  type = SIMPSON
  [../]
 
- 
  []
 
+ [Postprocessors]
+ [./value_x]
+ type = PointValue
+ variable = disp_x
+ point = '10.0 1.0 0.0'
+ [../]
+ [./value_y]
+ type = PointValue
+ variable = disp_y
+ point = '10.0 1.0 0.0'
+ [../]
+ []
+ 
+ 
  [Problem]
  type = FEProblem
  solve = true

@@ -8,6 +8,9 @@
 #include "QQElement_slow.h"
 #include "NeohookeanQQ_slow.h"
 
+#include "GuccioneStrain_slow.h"
+#include "GuccioneStress_slow.h"
+
 template<>
 InputParameters validParams<QuasiquadraticApp>()
 {
@@ -47,6 +50,10 @@ QuasiquadraticApp::registerObjects(Factory & factory)
     registerKernel(QQElement);
     registerKernel(QQElement_slow);
     registerKernel(NeohookeanQQ_slow);
+    
+    registerKernel(GuccioneStrain_slow);
+    registerKernel(GuccioneStress_slow);
+    
 }
 
 // External entry point for dynamic syntax association

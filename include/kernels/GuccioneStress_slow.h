@@ -1,18 +1,18 @@
-#ifndef NEOHOOKEAN_QQ_SLOW_H
-#define NEOHOOKEAN_QQ_SLOW_H
+#ifndef GUCCIONE_STRESS_H
+#define GUCCIONE_STRESS_H
 
 #include "Kernel.h"
 
-class NeohookeanQQ_slow;
+class GuccioneStress_slow;
 
 template<>
-InputParameters validParams<NeohookeanQQ_slow>();
+InputParameters validParams<GuccioneStress_slow>();
 
 
-class NeohookeanQQ_slow : public Kernel
+class GuccioneStress_slow : public Kernel
 {
 public:
-    NeohookeanQQ_slow( InputParameters const & params);
+    GuccioneStress_slow( InputParameters const & params);
 protected:
     virtual Real computeQpResidual(){return 0.0;};
     //virtual Real computeQpJacobian(){return 0.0;};
@@ -26,6 +26,8 @@ protected:
     //void initTensorVariables();
     void computeResidual2D();
     //void computeJacobian2D();
+    
+    RealTensorValue assembleStress(RealTensorValue const & C);
     
     virtual void assembleStrainLin(int dim, int triangle, int * _local_to_global);
     

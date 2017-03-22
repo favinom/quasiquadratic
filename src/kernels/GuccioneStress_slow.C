@@ -1,11 +1,11 @@
-#include "QQElement_slow.h"
+#include "GuccioneStress_slow.h"
 
 #include "MooseMesh.h"
 #include "Assembly.h"
 #include "libmesh/quadrature.h"
 
 template <>
-InputParameters validParams<QQElement_slow>() {
+InputParameters validParams<GuccioneStress_slow>() {
   InputParameters params = validParams<Kernel>();
   params.addRequiredCoupledVar("disp_x", "");
   params.addRequiredCoupledVar("disp_y", "");
@@ -16,7 +16,7 @@ InputParameters validParams<QQElement_slow>() {
   return params;
 }
 
-QQElement_slow::QQElement_slow(const InputParameters & params) :
+GuccioneStress_slow::GuccioneStress_slow(const InputParameters & params) :
     Kernel(params),
     _component(getParam<unsigned>("component")),
     _disp_x_var(coupled("disp_x")),
@@ -45,10 +45,12 @@ QQElement_slow::QQElement_slow(const InputParameters & params) :
     U = new RealTensorValue [4];
     F = new RealTensorValue [4];
     C = new RealTensorValue [4];
-    E = new RealTensorValue [4];
+    S = new RealTensorValue [4];
 
     // EQQ is per node coarse
-    EQQ = new RealTensorValue [3];
+    CQQ = new RealTensorValue [3];
+    
+    SQQ = new RealTensorValue [3];
     
 
     // eps_lin, per dimension, per triangle, per node
@@ -96,31 +98,24 @@ QQElement_slow::QQElement_slow(const InputParameters & params) :
     simpson_to_tri6[4]=5;
     simpson_to_tri6[5]=4;
     
-    _mu=1.0;
-    _lambda=0.0;
-    
+    _mu=0.1;
+    _lambda=100.0;
+    strain_projection=1;
 
 }
 
-void QQElement_slow::computeResidual()
+void GuccioneStress_slow::computeResidual()
 {
-//    std::cout<<"chiamato\n";
     if (_mesh.dimension()==2)
         computeResidual2D();
 }
 
-void QQElement_slow::computeResidual2D()
+void GuccioneStress_slow::computeResidual2D()
 {
-    /*std::cout<<"numero di punti "<<_qrule->n_points()<<std::endl;
-     for (_qp = 0; _qp < _qrule->n_points(); _qp++)
-         std::cout<<_JxW[_qp]<<std::endl;
-    exit(1);*/
-    
     Real area=0.0;
     for (_qp = 0; _qp < _qrule->n_points(); _qp++)
         area+=_JxW[_qp];
 
-    
     DenseMatrix<Number> mass_matrix;
     mass_matrix.resize(3,3);
     for (int i=0; i<3; ++i)
@@ -157,14 +152,15 @@ void QQElement_slow::computeResidual2D()
     {
         F[i]=U[i]+_identity;
         C[i]=F[i].transpose()*F[i];
-        E[i]=0.5*(C[i]-_identity);
+        
+        S[i]=assembleStress(C[i]);
     }
     
     for (int nodo_coarse=0; nodo_coarse<3; ++nodo_coarse)
     {
-        EQQ[nodo_coarse]=2.0*E[nodo_coarse]-E[3];
-        EQQ[nodo_coarse]=2.0*_mu*EQQ[nodo_coarse]+_lambda*EQQ[nodo_coarse].tr()*_identity;
+            SQQ[nodo_coarse]=2.0*S[nodo_coarse]-S[3];
     }
+    
     // FINE ASSEMBLING STRAIN QQ
 
     for (int dim=0; dim<2; ++dim)
@@ -175,8 +171,7 @@ void QQElement_slow::computeResidual2D()
         for (int nodo=0; nodo<6; ++nodo)
             for (int nodo_coarse=0; nodo_coarse<3; ++nodo_coarse)
                 _eps_lin_QQ[dim][nodo][nodo_coarse]=2.0*_eps_lin[dim][nodo_coarse][nodo]-_eps_lin[dim][3][nodo];
-    
-    
+
     DenseVector<Number> & f_x = _assembly.residualBlock(_disp_x_var);
     DenseVector<Number> & f_y = _assembly.residualBlock(_disp_y_var);
     DenseVector<Number> _f_local[2];
@@ -192,6 +187,8 @@ void QQElement_slow::computeResidual2D()
     DenseVector<Number> VLin(3);
     DenseVector<Number> res(3);
     
+    
+    
     for (int dim=0; dim<2; ++dim)
         for (int nodo = 0; nodo < 6; ++nodo)
         {
@@ -204,7 +201,7 @@ void QQElement_slow::computeResidual2D()
                     
                     for (int nodo_coarse = 0; nodo_coarse < 3; ++nodo_coarse)  // nuova quadratura
                     {
-                        V(nodo_coarse)=EQQ[nodo_coarse](i_local,j_local);
+                        V(nodo_coarse)=SQQ[nodo_coarse](i_local,j_local);
                         VLin(nodo_coarse)=_eps_lin_QQ[dim][nodo][nodo_coarse](i_local,j_local);
                     }
                     
@@ -236,165 +233,9 @@ void QQElement_slow::computeResidual2D()
     
 }
 
-//void QQElement::computeOffDiagJacobian(unsigned int jvar)
-//{
-//    if (jvar==_var.number())
-//        computeJacobian2D();
-//
-//    
-//    if(_has_diag_save_in)
-//    {
-//        mooseError("Error: diag in already saved in");
-//    }
-//    
-//    
-//}
 
-/*void QQElement::computeJacobian2D()
-{
- 
-//    // References to the right components of the stiffness matrix
-//    DenseMatrix<Number> & A_R_xx = _assembly.jacobianBlock(_disp_real_x_var, _disp_real_x_var);
-//    DenseMatrix<Number> & A_R_xy = _assembly.jacobianBlock(_disp_real_x_var, _disp_real_y_var);
-//    DenseMatrix<Number> & B_R_xp = _assembly.jacobianBlock(_disp_real_x_var, _p_real_var);
-//    
-//    DenseMatrix<Number> & A_R_yx = _assembly.jacobianBlock(_disp_real_y_var, _disp_real_x_var);
-//    DenseMatrix<Number> & A_R_yy = _assembly.jacobianBlock(_disp_real_y_var, _disp_real_y_var);
-//    DenseMatrix<Number> & B_R_yp = _assembly.jacobianBlock(_disp_real_y_var, _p_real_var);
-//    
-//    DenseMatrix<Number> & A_I_xx = _assembly.jacobianBlock(_disp_imag_x_var, _disp_imag_x_var);
-//    DenseMatrix<Number> & A_I_xy = _assembly.jacobianBlock(_disp_imag_x_var, _disp_imag_y_var);
-//    DenseMatrix<Number> & B_I_xp = _assembly.jacobianBlock(_disp_imag_x_var, _p_imag_var);
-//    
-//    DenseMatrix<Number> & A_I_yx = _assembly.jacobianBlock(_disp_imag_y_var, _disp_imag_x_var);
-//    DenseMatrix<Number> & A_I_yy = _assembly.jacobianBlock(_disp_imag_y_var, _disp_imag_y_var);
-//    DenseMatrix<Number> & B_I_yp = _assembly.jacobianBlock(_disp_imag_y_var, _p_imag_var);
-//    
-//    DenseMatrix<Number> & C_RR = _assembly.jacobianBlock(_p_real_var, _p_real_var);
-//    DenseMatrix<Number> & M_RI = _assembly.jacobianBlock(_p_real_var, _p_imag_var);
-//    DenseMatrix<Number> & M_IR = _assembly.jacobianBlock(_p_imag_var, _p_real_var);
-//    DenseMatrix<Number> & C_II = _assembly.jacobianBlock(_p_imag_var, _p_imag_var);
-//    
-//    DenseMatrix<Number> & B_pR_xI = _assembly.jacobianBlock(_p_real_var,_disp_imag_x_var);
-//    DenseMatrix<Number> & B_pR_yI = _assembly.jacobianBlock(_p_real_var,_disp_imag_y_var);
-//    
-//    DenseMatrix<Number> & B_pI_xR = _assembly.jacobianBlock(_p_imag_var,_disp_real_x_var);
-//    DenseMatrix<Number> & B_pI_yR = _assembly.jacobianBlock(_p_imag_var,_disp_real_y_var);
-//    
-//    DenseMatrix<Number> _A_local[2][2];
-//    DenseMatrix<Number> _BT_local[2];
-//    DenseMatrix<Number> _C_local;
-//    DenseMatrix<Number> _M_local;
-//    
-//    for (int i=0; i<2; ++i)
-//    {
-//        for (int j=0; j<2; ++j)
-//        {
-//            _A_local[i][j].resize(A_R_xx.m(),A_R_xx.n());
-//            _A_local[i][j].zero();
-//        }
-//        _BT_local[i].resize(B_R_xp.m(),B_R_xp.n());
-//        _BT_local[i].zero();
-//    }
-//    _C_local.resize(C_RR.m(),C_RR.n());
-//    _C_local.zero();
-//    _M_local.resize(M_RI.m(),M_RI.n());
-//    _M_local.zero();
-//    
-//    initTensorVariables();
-//    
-//    for (int idim=0; idim<2; ++idim)
-//        for (int jdim=idim; jdim<2; ++jdim)
-//            for (_i = 0; _i < _P2.size(); ++_i)
-//                for (_j = 0; _j < _P2.size(); ++_j)
-//                    for (_qp = 0; _qp < _qrule->n_points(); _qp++)
-//                    {
-//                        RealTensorValue & sigma=_sigma_lin[jdim][_j][_qp];
-//                        RealTensorValue & V=_V[idim][_i][_qp];
-//                        _A_local[idim][jdim](_i,_j)+=_JxW[_qp] * _coord[_qp]*sigma.contract(V);
-//                    }
-//    
-//    for (int idim=0; idim<2; ++idim)
-//        for (_i = 0; _i < _P2.size(); ++_i)
-//            for (_j = 0; _j < _P1.size(); ++_j)
-//                for (_qp = 0; _qp < _qrule->n_points(); _qp++)
-//                {
-//                    RealTensorValue & V=_V[idim][_i][_qp];
-//                    _BT_local[idim](_i,_j)+=_JxW[_qp] * _coord[_qp]*_alpha[_qp]*_P1[_j][_qp]*V.tr();
-//                }
-//    
-//    DenseMatrix<Number> _B_local[2];
-//    _BT_local[0].get_transpose(_B_local[0]);
-//    _BT_local[1].get_transpose(_B_local[1]);
-//
-//
-//    
-//    
-//    for (int i=0; i<_A_local[1][0].m(); ++i)
-//        for (int j=0; j<_A_local[1][0].m(); ++j)
-//            _A_local[1][0](i,j)=_A_local[0][1](j,i);
-//    
-//    for (_i=0;_i<_P1.size(); ++_i)
-//        for (_j=0;_j<_P1.size(); ++_j)
-//            for (_qp = 0; _qp < _qrule->n_points(); _qp++)
-//                _C_local(_i,_j)+=_JxW[_qp] * _coord[_qp]*_diffusion[_qp]*_grad_P1[_i][_qp]*_grad_P1[_j][_qp];
-//
-//    for (_i=0;_i<_P1.size(); ++_i)
-//        for (_j=0;_j<_P1.size(); ++_j)
-//            for (_qp = 0; _qp < _qrule->n_points(); _qp++)
-//                _M_local(_i,_j)+=_JxW[_qp] * _coord[_qp]*_inv_m[_qp]*_P1[_i][_qp]*_P1[_j][_qp];
-//
-//    
-//    
-//    A_R_xx += _A_local[0][0];
-//    A_R_xy += _A_local[0][1];
-//    A_R_yx += _A_local[1][0];
-//    A_R_yy += _A_local[1][1];
-//    
-//    A_I_xx += _A_local[0][0];
-//    A_I_xy += _A_local[0][1];
-//    A_I_yx += _A_local[1][0];
-//    A_I_yy += _A_local[1][1];
-//    
-//    B_R_xp -= _BT_local[0];
-//    B_R_yp -= _BT_local[1];
-//    
-//    B_I_xp -= _BT_local[0];
-//    B_I_yp -= _BT_local[1];
-//    
-//    C_RR   -= _C_local;
-//    C_II   -= _C_local;
-//
-//    M_RI   += _M_local;
-//    M_IR   -= _M_local;
-//    
-//    B_pR_xI+=_B_local[0];
-//    B_pR_yI+=_B_local[1];
-//    B_pI_xR-=_B_local[0];
-//    B_pI_yR-=_B_local[1];
-    
-}*/
 
-/*void QQElement::initTensorVariables()
-{
-//        for (int d=0; d<_mesh.dimension(); ++d)
-//            for ( _j = 0; _j < _P2.size() ; ++_j)
-//                for (_qp = 0; _qp < _qrule->n_points(); _qp++)
-//                {
-//                    _V[d][_j][_qp]=RealTensorValue(0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0);
-//                    for (int j=0; j<_mesh.dimension(); ++j)
-//                        _V[d][_j][_qp](d,j)=_grad_P2[_j][_qp](j);
-//                    
-//                    RealTensorValue & V=_V[d][_j][_qp];
-//                    _eps_lin[d][_j][_qp]=0.5*( V+V.transpose() );
-//                    
-//                    RealTensorValue & eps=_eps_lin[d][_j][_qp];
-//                    _sigma_lin[d][_j][_qp]=2.0 * _mu[_qp]*eps + _lambda[_qp]*eps.tr()*_identity;
-//                }
-//    
-}*/
-
-void QQElement_slow::computeGradient(RealVectorValue x0, RealVectorValue x1, RealVectorValue x2, RealVectorValue * Gradient)
+void GuccioneStress_slow::computeGradient(RealVectorValue x0, RealVectorValue x1, RealVectorValue x2, RealVectorValue * Gradient)
 {
     RealTensorValue coordinates;
     coordinates(0,0)=x0(0);
@@ -413,7 +254,7 @@ void QQElement_slow::computeGradient(RealVectorValue x0, RealVectorValue x1, Rea
     Gradient[2]=RealVectorValue(coordinates(0,2),coordinates(1,2),0.0);
 }
 
-void QQElement_slow::assembleStrainLin(int dim, int triangle, int * _local_to_global)
+void GuccioneStress_slow::assembleStrainLin(int dim, int triangle, int * _local_to_global)
 {
     // set to zero strain_lin
     for (int i=0; i <6; ++i)   // i is the quadrature node
@@ -433,6 +274,17 @@ void QQElement_slow::assembleStrainLin(int dim, int triangle, int * _local_to_gl
 
 
 
+RealTensorValue GuccioneStress_slow::assembleStress(RealTensorValue const & C)
+{
+    
+    RealTensorValue E = 0.5 * (C - _identity);
+    
+    Real _stiffening =  std::exp(_mu*E.contract(E)+_lambda/2.0 *E.tr()*E.tr());
+    
+    RealTensorValue S = _stiffening * ( 2.0 * _mu* E +_lambda*E.tr()*_identity );
+    
+    return S;
+}
 
 
 

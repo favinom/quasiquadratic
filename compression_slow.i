@@ -1,10 +1,10 @@
 [Mesh]
  type = GeneratedMesh
  dim = 2
- nx = 80
- ny = 8
+ nx = 64
+ ny = 16
  xmin = 0.0
- xmax = 10.0
+ xmax = 4.0
  ymin = 0.0
  ymax = 1.0
  elem_type = TRI6
@@ -46,7 +46,9 @@
  
 [Kernels]
 [./QQElementKernel_x]
- type = NeohookeanQQ_slow
+# type = GuccioneStress_slow
+ type = GuccioneStrain_slow
+# type = NeohookeanQQ_slow
  component =0
  variable = disp_x
  disp_x = disp_x
@@ -54,7 +56,9 @@
 [../]
 
  [./QQElementKernel_y]
- type = NeohookeanQQ_slow
+# type = GuccioneStress_slow
+ type = GuccioneStrain_slow
+# type = NeohookeanQQ_slow
  component =1
  variable = disp_y
  disp_x = disp_x
@@ -64,28 +68,12 @@
  []
  
  [BCs]
-#active = 'bottom_y'
- [./left_x]
- type = DirichletBC
- variable = disp_x
- boundary = left
- value = 0
- [../]
-
- [./left_y]
- type = DirichletBC
- variable = disp_y
- boundary = left
- value = 0
- [../]
-
- [./bottom_y]
- type = NeumannBC
- variable = disp_y
- boundary = bottom
- value = 0.0001
- [../]
- 
+ [./left_x]   type = DirichletBC variable = disp_x boundary = left   value = 0    [../]
+ [./right_x]  type = DirichletBC variable = disp_x boundary = right  value = 0    [../]
+ [./left_y]   type = DirichletBC variable = disp_y boundary = left   value = 0    [../]
+ [./right_y]  type = DirichletBC variable = disp_y boundary = right  value = 0    [../]
+ [./bottom_y] type = DirichletBC variable = disp_y boundary = bottom value = 0    [../]
+ [./top_y]    type = NeumannBC   variable = disp_y boundary = top    value = -0.4 [../]
  []
  
  [Preconditioning]
@@ -108,6 +96,7 @@ nl_abs_tol = 1e-8
 
  petsc_options_iname=' -ksp_type -pc_type' #  -mat_view '
  petsc_options_value='   preonly   lu    ' #::ascii_matlab       '
+
  
  [./Quadrature]
  type = SIMPSON
@@ -119,16 +108,14 @@ nl_abs_tol = 1e-8
  [./value_x]
  type = PointValue
  variable = disp_x
- point = '10.0 1.0 0.0'
+ point = '2.0 1.0 0.0'
  [../]
  [./value_y]
  type = PointValue
  variable = disp_y
- point = '10.0 1.0 0.0'
+ point = '2.0 1.0 0.0'
  [../]
-
  []
-
  
  
  [Problem]

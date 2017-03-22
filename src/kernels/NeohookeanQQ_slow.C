@@ -100,7 +100,7 @@ NeohookeanQQ_slow::NeohookeanQQ_slow(const InputParameters & params) :
     
     _mu=1.0;
     _lambda=3.0;
-    
+    strain_projection=1;
 
 }
 
@@ -125,13 +125,13 @@ void NeohookeanQQ_slow::computeResidual2D()
             else
                 mass_matrix(i,j)=area/12.0;
 
-    mass_matrix.resize(3,3);
-    for (int i=0; i<3; ++i)
-        for (int j=0; j<3; ++j)
-            if (i==j)
-                mass_matrix(i,j)=area/3.0;
-            else
-                mass_matrix(i,j)=0.0;
+//    mass_matrix.resize(3,3);
+//    for (int i=0; i<3; ++i)
+//        for (int j=0; j<3; ++j)
+//            if (i==j)
+//                mass_matrix(i,j)=area/3.0;
+//            else
+//                mass_matrix(i,j)=0.0;
     
     
     for (int tri=0; tri<4; ++tri)
@@ -173,16 +173,35 @@ void NeohookeanQQ_slow::computeResidual2D()
     
     for (int nodo_coarse=0; nodo_coarse<3; ++nodo_coarse)
     {
+        if (strain_projection)
+        {
         CQQ[nodo_coarse]=2.0*C[nodo_coarse]-C[3];
-        CQQ[nodo_coarse](2,2)=1.0;
-        
-        RealTensorValue invCQQ;
-        invCQQ=CQQ[nodo_coarse].inverse();
-        invCQQ(2,2)=0.0;
-        CQQ[nodo_coarse](2,2)=0.0;
-        SQQ[nodo_coarse]=_identity-invCQQ;
-//        SQQ[nodo_coarse]=2.0*S[nodo_coarse]-S[3];
+        }
+        else
+            SQQ[nodo_coarse]=2.0*S[nodo_coarse]-S[3];
     }
+
+    RealTensorValue SQQ_qp[3];
+    if (strain_projection)
+    {
+
+        RealTensorValue CQQ_qp[3];
+        CQQ_qp[0]=2.0/3.0*CQQ[0]+1.0/6.0*CQQ[1]+1.0/6.0*CQQ[2];
+        CQQ_qp[1]=1.0/6.0*CQQ[0]+2.0/3.0*CQQ[1]+1.0/6.0*CQQ[2];
+        CQQ_qp[2]=1.0/6.0*CQQ[0]+1.0/6.0*CQQ[1]+2.0/3.0*CQQ[2];
+        
+        for (_qp=0; _qp<3; ++_qp)
+        {
+            CQQ_qp[_qp](2,2)=1.0;
+            RealTensorValue invCQQ=CQQ_qp[_qp].inverse();
+            CQQ_qp[_qp](2,2)=0.0;
+            invCQQ(2,2)=0.0;
+            SQQ_qp[_qp]=_identity-invCQQ;
+        }
+    }
+    
+    
+    
     // FINE ASSEMBLING STRAIN QQ
 
     for (int dim=0; dim<2; ++dim)
@@ -194,6 +213,20 @@ void NeohookeanQQ_slow::computeResidual2D()
             for (int nodo_coarse=0; nodo_coarse<3; ++nodo_coarse)
                 _eps_lin_QQ[dim][nodo][nodo_coarse]=2.0*_eps_lin[dim][nodo_coarse][nodo]-_eps_lin[dim][3][nodo];
     
+    RealTensorValue _eps_lin_QQ_qp[2][6][3];
+    if (strain_projection)
+    {
+        for (int dim=0; dim<2; ++dim)
+        {
+            for (int nodo=0; nodo<6; ++nodo)
+            {
+                _eps_lin_QQ_qp[dim][nodo][0]=2.0/3.0*_eps_lin_QQ[dim][nodo][0]+1.0/6.0*_eps_lin_QQ[dim][nodo][1]+1.0/6.0*_eps_lin_QQ[dim][nodo][2];
+                _eps_lin_QQ_qp[dim][nodo][1]=1.0/6.0*_eps_lin_QQ[dim][nodo][0]+2.0/3.0*_eps_lin_QQ[dim][nodo][1]+1.0/6.0*_eps_lin_QQ[dim][nodo][2];
+                _eps_lin_QQ_qp[dim][nodo][2]=1.0/6.0*_eps_lin_QQ[dim][nodo][0]+1.0/6.0*_eps_lin_QQ[dim][nodo][1]+2.0/3.0*_eps_lin_QQ[dim][nodo][2];
+            }
+        }
+        
+    }
     
     DenseVector<Number> & f_x = _assembly.residualBlock(_disp_x_var);
     DenseVector<Number> & f_y = _assembly.residualBlock(_disp_y_var);
@@ -209,6 +242,18 @@ void NeohookeanQQ_slow::computeResidual2D()
     DenseVector<Number> V(3);
     DenseVector<Number> VLin(3);
     DenseVector<Number> res(3);
+    
+    
+    if (strain_projection)
+    {
+        for (int dim=0; dim<2; ++dim)
+            for (_j=0; _j<6; ++_j)
+                for (_qp =0; _qp<3; ++_qp)
+                    _f_local[dim](simpson_to_tri6[_j])+=1.0/3.0*area*SQQ_qp[_qp].contract(_eps_lin_QQ_qp[dim][_j][_qp]);
+        
+    }
+    else
+    {
     
     for (int dim=0; dim<2; ++dim)
         for (int nodo = 0; nodo < 6; ++nodo)
@@ -231,6 +276,8 @@ void NeohookeanQQ_slow::computeResidual2D()
                 }
             
         }
+    
+    }
     
     
     
